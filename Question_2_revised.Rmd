@@ -1,0 +1,401 @@
+---
+title: "Written exam"
+author: "Patricia Faundez"
+date: "April, 2018"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Data and vectors of Years, Catches, CPUE.obs and observation error
+Data <- read.csv("C:/Users/Patricia/Box Sync/2018_Winter/Written_exam/question_2_revised/data_for_question_4.csv", stringsAsFactors = T)
+Years <- Data[,1]
+CPUE.obs <- Data[,2]
+Catches <- Data[,3]
+Error.ob <- Data[,4] 
+```
+
+```{r}
+#Schaeffer Model
+
+model.pe <- function(r, K, q=1, year.start=1968, year.end=2016, catches, CPUE.obs){
+  
+    #variables
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Schaeffer model
+    Bt[1] <- K                                         # biomass year 1 = carrying capacit
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+Bt[i-1]*r*(1-Bt[i-1]/K)-catches[i-1])
+    }
+    
+     # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+      # calculating NLL
+       NLL <- (49*log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+      
+       
+    ## Return the results as a matrix of n columns
+    out <- cbind(CPUE.obs, catches, Bt, Residuals, Residuals2, sigma, NLL)
+    return(out)
+}
+
+# Exploring different values of r and K to get a feeling for what values will give reasonable fits to the data
+
+res.pe = model.pe(r=0.26 ,K=2692449, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs)
+#res.pe
+```
+
+
+```{r}
+#Plot Schaefer
+
+plot1 <- plot(Years, CPUE.obs, pch=16, ylim=c(50000,5000000),
+     main="Schaefer Model", ylab="CPUE") 
+
+lines(Years, model.pe(r=0.26 ,K=2692449, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs)[,3], lwd=2, col="red")# using the r and K values from optimization
+
+legend("topright", legend=c("Observed CPUE", "Modeled Biomass"),
+       lty=c(NA, 1), col=c(1,2), pch=c(16, NA), lwd=2)
+
+#model.pe(r=0.25 , K=2178306, q=1, year.start=1968, year.end=2016, sigma.obs=0.1, catches=Catches, CPUE.obs=CPUE.obs, sigma.w = 0.15, random.seed=4)
+
+```
+
+
+
+```{r}
+#Schaeffer
+
+minimize.NLL.pe <- function(par, q=1, year.start=1968, year.end=2016, catches, CPUE.obs){
+
+   ## r and K in one vector for optimization
+    r <- par[1]
+    K <- par[2]
+    #parlog <- log(par)               # log-transformation
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Schaeffer model
+    Bt[1] <- K                                        
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+Bt[i-1]*r*(1-Bt[i-1]/K)-catches[i-1])
+    }
+    
+     # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+      # calculating NLL
+       NLL <- (49*log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+       
+    return(NLL)
+}
+
+#This verifies that the NLL as in the initial function (model.pred)
+minimize.NLL.pe(par=c(0.26 ,2692449), q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs)
+
+```
+
+```{r}
+# OBSERVATION ERROR MODEL (Minimizing K)
+
+Rprofile.NLL.ob.K <- function(param.vector, K, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs){
+  
+    r <- param.vector[1]
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Schaeffer model
+    Bt[1] <- K                                         # biomass year 1 = carrying capacit
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+Bt[i-1]*r*(1-Bt[i-1]/K)-catches[i-1])
+    }
+    
+     # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+      # calculating NLL
+       NLL <- (49*log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+       
+    return(NLL)
+}
+
+# The likelihood profile
+Rprofile.ob.K <- function(R.vec.ob.K, lower=10, upper=5000000) {
+   nR <- length(R.vec.ob.K)
+   saved.NLL <- saved.K <- vector(length=nR)
+   
+   for (i in 1:nR) {
+      x <- optim(par=c(K=2778198),fn=Rprofile.NLL.ob.K, method="Brent", 
+                        param.vector=R.vec.ob.K[i], q=1, year.start=1968, year.end=2016,
+                        catches=Catches, CPUE.obs=CPUE.obs, 
+                        lower=lower, upper=upper)
+      saved.NLL[i] <- x$value
+      saved.K[i] <- x$par
+   }
+   return(data.frame(ob.r = R.vec.ob.K, ob.K=saved.K, NLL.ob.K=saved.NLL))
+}
+# calculate the NLL for K
+R.vec.ob.K <- seq(0.1,0.9,0.01)
+
+values.ob <- Rprofile.ob.K(R.vec.ob.K=R.vec.ob.K, lower=10, upper=5000000)
+#values.ob
+
+```
+
+
+```{r}
+#Pella-Tomlinson Model, which has one additional parameter p
+
+model.pt <- function(r, K, p, q=1, year.start=1968, year.end=2016, catches, CPUE.obs){
+  
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Pella-Tomlinson
+    Bt[1] <- K                          # biomass year 1 = carrying capacit
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+r/p*Bt[i-1]*(1-(Bt[i-1]/K)^p))- catches[i-1]
+    }
+      
+     # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+      # calculating NLL
+        NLL <- (0.5*log(2*pi) + log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+      
+      # Results 
+    out <- cbind(CPUE.obs, catches, Bt, Residuals, Residuals2, sigma, NLL)
+    return(out)
+}
+
+res.pt = model.pt(r=0.26, K=2692449, p=1, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs)
+#res.pt
+
+```
+
+
+```{r}
+#Plot Pella-Tomlinson
+
+plot1 <- plot(Years, CPUE.obs, pch=16, ylim=c(50000,5000000),
+     main="Pella-Tomlinson Model", ylab="CPUE") 
+
+lines(Years, model.pt(r=0.26, K=2692449, p=1, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs)[,3], lwd=2, col="red")
+
+legend("topright", legend=c("Observed CPUE", "Modeled Biomass"),
+       lty=c(NA, 1), col=c(1,2), pch=c(16, NA), lwd=2)
+
+```
+
+
+```{r}
+minimize.NLL.pt <- function(par, p=0.1, q=1, year.start=1968, year.end=2016, catches, CPUE.obs){
+
+   ## r and K in one vector for optimization
+    r <- par[1]
+    K <- par[2]
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Pella-Tomlinson
+    Bt[1] <- K                          # biomass year 1 = carrying capacit
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+r/p*Bt[i-1]*(1-(Bt[i-1]/K)^p))- catches[i-1]
+    }
+      
+     # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+      # calculating NLL
+        NLL <- (0.5*log(2*pi) + log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+      
+       
+    return(NLL)
+}
+
+#This verifies that the NLL as in the initial function (model.pred)
+minimize.NLL.pt(par=c(0.26 ,2692449), p=0.1, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs)
+
+```
+
+
+
+```{r}
+# OBSERVATION ERROR MODEL (Minimizing K)
+
+Rprofile.NLL.pt <- function(param.vector, K, p, q=1, year.start=1968, year.end=2016, catches=Catches, CPUE.obs=CPUE.obs){
+  
+    r <- param.vector[1]
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Pella-Tomlinson
+    Bt[1] <- K                          # biomass year 1 = carrying capacit
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+r/p*Bt[i-1]*(1-(Bt[i-1]/K)^p))- catches[i-1]
+    }
+      
+    # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+    # calculating NLL
+        NLL <- (0.5*log(2*pi) + log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+      
+    return(NLL)
+}
+
+# The likelihood profile
+Rprofile.ob.K <- function(R.vec.ob.K, lower=10, upper=5000000) {
+   nR <- length(R.vec.ob.K)
+   saved.NLL <- saved.K <- vector(length=nR)
+   
+   for (i in 1:nR) {
+      x <- optim(par=c(K=2778198),fn=Rprofile.NLL.pt, method="Brent", 
+                        param.vector=R.vec.ob.K[i], p=1, q=1, year.start=1968, year.end=2016,
+                        catches=Catches, CPUE.obs=CPUE.obs, 
+                        lower=lower, upper=upper)
+      saved.NLL[i] <- x$value
+      saved.K[i] <- x$par
+   }
+   return(data.frame(ob.r = R.vec.ob.K, ob.K=saved.K, NLL.ob.K=saved.NLL))
+}
+# calculate the NLL profile 
+R.vec.ob.K <- seq(0.1,0.9,0.01)
+
+values.ob <- Rprofile.ob.K(R.vec.ob.K=R.vec.ob.K, lower=10, upper=5000000)
+#values.ob
+```
+ 
+```{r}
+#AIC model comparison 
+
+#Schaefer Model
+
+param_sch = 5                       #r, K, q, sigma, B1968
+NLL_sch= -41.35341
+
+# Pella-Tomlinson Model
+
+param_pt = 6                        #p, r, K, q, sigma, B1968
+NLL_pt= 23.58520
+
+AIC_sch = (2*NLL_sch)+(2*param_sch) #-72.71
+AIC_pt = (2*NLL_pt)+(2*param_pt)    #59.1704
+
+```
+
+
+```{r}
+#Simulate a population dynamics model, simulate catches and biomass for different fishing effort with optimum values of r and K, calculated from Schaefer Model 
+
+#Fstart = fishing mortality rate, must be >0 not equal to 0
+#Bstart = starting biomass
+#nyears = number of years to simulate
+
+logistic.effort <- function(r, K, Bstart, Fstart, nyears, 
+                            nruns) {
+   Bmat <- matrix(nrow=nruns, ncol=nyears, 
+                  dimnames=list(paste("Run",1:nruns), paste("Year",1:nyears)))
+  
+   Cmat <- matrix(nrow=nruns, ncol=nyears, 
+                  dimnames=list(paste("Run",1:nruns), paste("Year",1:nyears)))
+   Bmat[,1] <- Bstart   
+   umsy <- r/2    #umsy = 1-exp(-Fmsy)
+   for (i in 1:nruns) {
+      for (yr in 1:(nyears-1)) {
+         Cmat[i,yr] <- Bmat[i,yr]*(1-exp(-Fstart))
+         Bmat[i,yr+1] <- Bmat[i,yr] + r*Bmat[i,yr]*(1-Bmat[i,yr]/K) - Cmat[i,yr]
+         } #end of loop over years
+   } #end of loop for nruns
+   
+   invisible(list(Bmat=Bmat, Cmat=Cmat))
+}
+#long 100-yr run
+temp <- logistic.effort(r=0.26, K=2692449, Bstart=2692449, Fstart=0.01, # I change Fstart to get catch and biomass at each fishing effort value, I recorded manually and generate a .csv file. I have to learn how to generate the whole data set in R
+                        nyears=101, nruns=1) # Here I put nyears=101 because I get an NA in the last year
+
+#temp  #100 years of simulation
+
+# Catch and Biomass by setting Fstart=0.01  
+Catch  <- temp$Cmat[,100] 
+Biomass <- temp$Bmat[,100]
+
+Catch  
+Biomass 
+```
+
+```{r}
+#Plot Yield curve for Schaefer model 
+
+Catch_Biomass <- read.csv("C:/Users/Patricia/Box Sync/2018_Winter/Written_exam/question_2_revised/Catch_Biomass.csv")
+C <- Catch_Biomass[,2]
+B <- Catch_Biomass[,3]
+
+plot1 <- plot(B, C, pch=16,
+     main="Yiel Curve Schaefer Model", ylab="Catch", xlab="Biomass") 
+```
+
+```{r}
+#This code is to show my attemp to log transform the parameters r and K before to enter the optimization. This is the shaefer model
+
+minimize.NLL.pe <- function(par, q=1, year.start=1968, year.end=2016, sigma.obs=0.1, catches=Catches, CPUE.obs=CPUE.obs, sigma.w = 0.15, random.seed=4){
+
+   ## r and K in one vector for optimization
+    r <- par[1]
+    K <- par[2]
+    par <- log(par)               # log-transformation
+    model.pe <- function(r, K, q=1, year.start=1968, year.end=2016, catches, CPUE.obs){
+  
+    #variables
+    years <- year.start:year.end                   
+    num.years <- length(years)                   
+    Bt <- rep(NA, num.years)                      
+   
+    # predicted population with Schaeffer model
+    Bt[1] <- K                                         # biomass year 1 = carrying capacit
+    for(i in 2:num.years){
+      Bt[i] <- max(0,Bt[i-1]+Bt[i-1]*r*(1-Bt[i-1]/K)-catches[i-1])
+    }
+    
+     # calculating residuals and sigma
+        Residuals <- (log(CPUE.obs)-log(Bt))  
+        Residuals2 <- ((log(CPUE.obs)-log(Bt))^2)  
+        sigma <- sqrt(sum(Residuals2)/(num.years-1))
+    
+      # calculating NLL
+       NLL <- (49*log(sigma)) + sum(((log(CPUE.obs)-log(Bt))^2) / (2*sigma^2))
+  }
+    return(NLL)
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+# This code it suppose to take the r and K log transformed parametersfrom the code above and produce r and K values in the initial dimentions.This doesn't work, it provides the Error in exp(par) : non-numeric argument to mathematical function
+
+optim(par = exp(par), fn = minimize.NLL.pe, method = "L-BFGS-B", q=1, year.start=1968, year.end=2016, sigma.obs=0.1, catches=Catches, CPUE.obs=CPUE.obs, sigma.w = 0.15, random.seed=4)
+```
